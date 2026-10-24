@@ -2,81 +2,86 @@
 const weatherApi = "https://api.weather.gov/alerts/active?area="
 
 // Your code here!
-/** @jest-environment jsdom */
+const API_URL = "https://api.weather.gov/alerts/active?area=";
 
-const flush = () => new Promise(r => setTimeout(r, 0));
-let app;
+const stateInput = document.getElementById("state-input");
+const fetchButton = document.getElementById("fetch-alerts");
+const alertsDisplay = document.getElementById("alerts-display");
+const errorDiv = document.getElementById("error-message");
 
-beforeEach(() => {
-  document.body.innerHTML = `
-    <input id="state-input" />
-    <button id="fetch-alerts">Get Weather Alerts</button>
-    <div id="alerts-display"></div>
-    <div id="error-message" class="hidden"></div>`;
-  jest.resetModules();
-  global.fetch = jest.fn();
-  app = require("../index.js");
-});
+// Step 1: fetch alerts
+function fetchWeatherAlerts(state) {
+  return fetch(`${API_URL}${state}`)
+    .then(response => {
+      return response.json().then(data => {
+        // NWS returns a JSON body with `detail`/`title` on bad requests
+        if (response.ok === false) {
+          throw new Error(data.detail || data.title || "Failed to fetch weather alerts.");
+        }
+        return data;
+      });
+    });
+}
 
-const mockSuccess = () =>
-  fetch.mockResolvedValue({
-    ok: true,
-    json: () =>
-      Promise.resolve({
-        title: "Current watches, warnings, and advisories for NY",
-        features: [{ properties: { headline: "Flood Watch" } }]
-      })
+// Step 2: display alerts
+function displayAlerts(data) {
+  alertsDisplay.innerHTML = ""; // Step 3: remove previous data
+
+  const summary = document.createElement("p");
+  summary.textContent = `${data.title}: ${data.features.length}`;
+  alertsDisplay.appendChild(summary);
+
+  const list = document.createElement("ul");
+  data.features.forEach(alert => {
+    const li = document.createElement("li");
+    li.textContent = alert.properties.headline;
+    list.appendChild(li);
   });
+  alertsDisplay.appendChild(list);
+}
 
-test("fetch is called with the input state abbreviation", async () => {
-  mockSuccess();
-  document.getElementById("state-input").value = "NY";
-  document.getElementById("fetch-alerts").click();
-  await flush();
-  expect(fetch).toHaveBeenCalledWith("https://api.weather.gov/alerts/active?area=NY");
-});
+// Step 4: error handling
+function showError(message) {
+  errorDiv.textContent = message;
+  errorDiv.classList.remove("hidden");
+  errorDiv.style.display = "block";
+}
 
-test("displays title and number of alerts on success", async () => {
-  mockSuccess();
-  document.getElementById("state-input").value = "NY";
-  document.getElementById("fetch-alerts").click();
-  await flush();
-  const text = document.getElementById("alerts-display").textContent;
-  expect(text).toContain("Current watches, warnings, and advisories for NY: 1");
-  expect(text).toContain("Flood Watch");
-});
+function clearError() {
+  errorDiv.textContent = "";
+  errorDiv.classList.add("hidden");
+  errorDiv.style.display = "none";
+}
 
-test("input clears when button is clicked", async () => {
-  mockSuccess();
-  const input = document.getElementById("state-input");
-  input.value = "NY";
-  document.getElementById("fetch-alerts").click();
-  await flush();
-  expect(input.value).toBe("");
-});
+function handleFetch() {
+  const state = stateInput.value.trim();
+  stateInput.value = ""; // Step 3: clear input
 
-test("displays error message on failed request", async () => {
-  fetch.mockRejectedValue(new Error("Network failure"));
-  document.getElementById("state-input").value = "NY";
-  document.getElementById("fetch-alerts").click();
-  await flush();
-  const err = document.getElementById("error-message");
-  expect(err.textContent).toBe("Network failure");
-  expect(err.classList.contains("hidden")).toBe(false);
-});
+  if (!state) {
+    showError("Please enter a state abbreviation.");
+    return Promise.resolve();
+  }
+  // Optional: input validation
+  if (!/^[A-Z]{2}$/.test(state)) {
+    showError("State must be two capital letters (e.g., MN).");
+    return Promise.resolve();
+  }
 
-test("error is cleared and hidden after a successful request", async () => {
-  fetch.mockRejectedValueOnce(new Error("Network failure"));
-  const input = document.getElementById("state-input");
-  input.value = "NY";
-  document.getElementById("fetch-alerts").click();
-  await flush();
+  return fetchWeatherAlerts(state)
+    .then(data => {
+      console.log(data);
+      clearError();
+      displayAlerts(data);
+    })
+    .catch(error => {
+      console.log(error.message);
+      alertsDisplay.innerHTML = "";
+      showError(error.message);
+    });
+}
 
-  mockSuccess();
-  input.value = "NY";
-  document.getElementById("fetch-alerts").click();
-  await flush();
-  const err = document.getElementById("error-message");
-  expect(err.textContent).toBe("");
-  expect(err.classList.contains("hidden")).toBe(true);
-});
+fetchButton.addEventListener("click", handleFetch);
+
+if (typeof module !== "undefined") {
+  module.exports = { fetchWeatherAlerts, displayAlerts, showError, clearError, handleFetch };
+}
